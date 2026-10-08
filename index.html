@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chess ♞ 双人对弈</title>
+<title>Chess ♞ Two-Player Game</title>
 <style>
-  body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
          background: #161512; color: #bababa; margin: 0; padding: 24px;
          display: flex; flex-direction: column; align-items: center; }
   h1 { color: #fff; font-size: 22px; margin: 0 0 16px; }
@@ -22,7 +22,7 @@
   .sq.selected { outline: 3px solid #829769; outline-offset: -3px; }
   .sq.lastmove { background: #cdd26a; }
   .sq.lastmove.dark { background: #aaa23a; }
-  /* 合法走位的圆点提示 */
+  /* dots marking legal moves */
   .sq.hint::after { content: ""; width: 20px; height: 20px; border-radius: 50%;
                     background: rgba(20, 85, 30, 0.35); position: absolute; }
   .sq.hint.capture::after { width: 56px; height: 56px; background: transparent;
@@ -45,43 +45,48 @@
 </style>
 </head>
 <body>
-<h1>♞ 国际象棋 <small>双人对弈</small></h1>
+<h1>♞ Chess <small>two-player game</small></h1>
 <div id="app">
   <div id="board"></div>
   <div id="side">
-    <div id="status">白方行棋</div>
+    <div id="status">White to move</div>
     <div id="captured"></div>
     <ol id="moves"></ol>
-    <button id="newGame">新开一局</button>
+    <button id="newGame">New game</button>
+    <button id="flipBoard">Flip board</button>
   </div>
 </div>
-<p class="note">点击棋子选中（绿点为合法走位），再点目标格走棋。升变自动升后。<br>
-规则引擎：chess.js（将军 / 将杀 / 逼和 / 长捉和棋等自动判定）</p>
+<p class="note">Click a piece to select it (green dots mark legal moves), then click a target square. Promotion auto-queens.<br>
+Rules engine: chess.js (check / checkmate / stalemate / draw detection)</p>
 
-<!-- chess.js 提供完整的规则判定：合法走位、将军、将杀、逼和、王车易位、吃过路兵 -->
+<!-- chess.js handles all the rules: legal moves, check, checkmate, stalemate, castling, en passant -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
 <script>
-const game = new Chess();   // 棋局状态全部由 chess.js 维护
-let selected = null;        // 当前选中的格子，如 "e2"
+const game = new Chess();   // chess.js owns all game state
+let selected = null;        // currently selected square, e.g. "e2"
+let flipped = false;        // flip the board (black at the bottom)
 
 const GLYPH = {
   w: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
   b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
 };
-const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };   // 子力价值，用于统计吃子
+const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };   // piece values, for the captured tally
 
 const boardEl = document.getElementById("board");
 const statusEl = document.getElementById("status");
 const movesEl = document.getElementById("moves");
 const capturedEl = document.getElementById("captured");
 
-// 行列序号 <-> 格子名（"e4"）的换算。白方在下：row 0 = 第 8 横线
+// Display coords (row, col) -> square name ("e4").
+// Normal view: display (0,0) = a8; flipped: display (0,0) = h1 (black at bottom)
 function sqName(row, col) {
-  return "abcdefgh"[col] + (8 - row);
+  const br = flipped ? 7 - row : row;   // true board row
+  const bc = flipped ? 7 - col : col;   // true board column
+  return "abcdefgh"[bc] + (8 - br);
 }
 
 function render() {
-  const position = game.board();          // 8x8 数组，row 0 = 8th rank
+  const position = game.board();          // 8x8 array, row 0 = 8th rank
   const last = game.history({ verbose: true }).slice(-1)[0];
   const hints = selected
     ? game.moves({ square: selected, verbose: true })
@@ -90,10 +95,12 @@ function render() {
   boardEl.innerHTML = "";
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
+      const br = flipped ? 7 - r : r;   // true board row
+      const bc = flipped ? 7 - c : c;   // true board column
       const sq = sqName(r, c);
-      const piece = position[r][c];
+      const piece = position[br][bc];
       const div = document.createElement("div");
-      div.className = "sq " + ((r + c) % 2 === 0 ? "light" : "dark");
+      div.className = "sq " + ((br + bc) % 2 === 0 ? "light" : "dark");
       div.dataset.square = sq;
       if (piece) {
         const span = document.createElement("span");
@@ -116,18 +123,18 @@ function render() {
 
 function onSquareClick(e) {
   const sq = e.currentTarget.dataset.square;
-  // 情况 1：已经选中了棋子，这次点的是合法目标 -> 走棋
+  // Case 1: a piece is selected and the clicked square is a legal target -> move
   if (selected) {
     const move = game.moves({ square: selected, verbose: true })
       .find((m) => m.to === sq);
     if (move) {
-      game.move({ from: selected, to: sq, promotion: "q" });  // 升变默认升后
+      game.move({ from: selected, to: sq, promotion: "q" });  // auto-queen on promotion
       selected = null;
       render();
       return;
     }
   }
-  // 情况 2：点的是己方棋子 -> 选中（或换选）；其他 -> 取消选中
+  // Case 2: clicked own piece -> select (or reselect); otherwise -> deselect
   const piece = game.get(sq);
   selected = piece && piece.color === game.turn() ? sq : null;
   render();
@@ -136,15 +143,15 @@ function onSquareClick(e) {
 function renderStatus() {
   let text;
   if (game.in_checkmate()) {
-    const winner = game.turn() === "w" ? "黑方" : "白方";
-    text = "将杀！🎉 " + winner + " 获胜";
+    const winner = game.turn() === "w" ? "Black" : "White";
+    text = "Checkmate! 🎉 " + winner + " wins";
   } else if (game.in_stalemate()) {
-    text = "逼和 🤝 双方和棋";
+    text = "Stalemate 🤝 Draw";
   } else if (game.in_draw()) {
-    text = "和棋 🤝（三次重复局面 / 50 回合 / 子力不足）";
+    text = "Draw 🤝 (threefold repetition / fifty-move rule / insufficient material)";
   } else {
-    text = (game.turn() === "w" ? "白方" : "黑方") + "行棋";
-    if (game.in_check()) text += " — 将军！";
+    text = (game.turn() === "w" ? "White" : "Black") + " to move";
+    if (game.in_check()) text += " — check!";
   }
   statusEl.textContent = text;
 }
@@ -161,7 +168,7 @@ function renderMoves() {
 }
 
 function renderCaptured() {
-  // 统计被吃掉的子：初始子力 - 棋盘上剩余
+  // Captured pieces: starting material minus pieces left on the board
   const start = { p: 8, n: 2, b: 2, r: 2, q: 1 };
   const onBoard = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 },
                     b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
@@ -172,21 +179,21 @@ function renderCaptured() {
   let html = "";
   let scoreW = 0, scoreB = 0;
   for (const type of ["q", "r", "b", "n", "p"]) {
-    for (let i = 0; i < start[type] - onBoard.b[type]; i++) {  // 白方吃掉的黑子
+    for (let i = 0; i < start[type] - onBoard.b[type]; i++) {  // black pieces captured by White
       html += '<span class="piece b">' + GLYPH.b[type] + "</span>";
       scoreW += VALUE[type];
     }
   }
   html += " ";
   for (const type of ["q", "r", "b", "n", "p"]) {
-    for (let i = 0; i < start[type] - onBoard.w[type]; i++) {  // 黑方吃掉的白子
+    for (let i = 0; i < start[type] - onBoard.w[type]; i++) {  // white pieces captured by Black
       html += '<span class="piece w">' + GLYPH.w[type] + "</span>";
       scoreB += VALUE[type];
     }
   }
   const diff = scoreW - scoreB;
   if (diff !== 0)
-    html += '<span class="score">' + (diff > 0 ? "白方 +" : "黑方 +")
+    html += '<span class="score">' + (diff > 0 ? "White +" : "Black +")
       + Math.abs(diff) + "</span>";
   capturedEl.innerHTML = html;
 }
@@ -194,6 +201,11 @@ function renderCaptured() {
 document.getElementById("newGame").addEventListener("click", () => {
   game.reset();
   selected = null;
+  render();
+});
+
+document.getElementById("flipBoard").addEventListener("click", () => {
+  flipped = !flipped;
   render();
 });
 
