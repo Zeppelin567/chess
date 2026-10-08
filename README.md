@@ -1,26 +1,28 @@
 # ♞ Chess
 
-在浏览器里打开就能下的**双人国际象棋**，零安装。
+A **two-player chess game** that runs entirely in the browser — no install needed.
 
-## 运行
+## Play
 
-直接用浏览器打开 `index.html` 即可（需要联网加载 `chess.js` 规则库）。
+- **Online:** https://zeppelin567.github.io/chess/ (no download, just open the link)
+- **Locally:** open `index.html` in a browser (internet required to load the `chess.js` rules library)
 
-## 玩法
+## How to play
 
-- 点击己方棋子选中，绿点是合法走位，再点目标格走棋
-- 将军 / 将杀 / 逼和 / 和棋自动判定
-- 右侧显示吃子统计、子力领先和棋谱
-- 升变自动升后
+- Click one of your pieces to select it — green dots show legal moves, then click a target square
+- Check / checkmate / stalemate / draws are detected automatically
+- Side panel shows captured pieces, material score, and the move list
+- Pawn promotion auto-queens
+- "Flip board" switches to black-at-bottom view
 
-## 技术
+## Tech
 
-- `index.html`：棋盘 UI + 交互逻辑（单个文件）
-- 规则引擎：[chess.js](https://github.com/jhlywa/chess.js)（CDN 引入），负责合法走位、将军、将杀、易位、吃过路兵等全部规则判定
+- `index.html` — board UI + interaction logic (single self-contained file)
+- Rules engine: [chess.js](https://github.com/jhlywa/chess.js) (via CDN) — legal moves, check, checkmate, castling, en passant, and draw detection
 
-## 后续想法
+## Roadmap
 
-- [ ] 翻转棋盘视角
-- [ ] 人机对战（Stockfish）
-- [ ] 计时钟
-- [ ] 升变时可选棋子
+- [x] Flip board view
+- [ ] Play vs computer (Stockfish)
+- [ ] Chess clocks
+- [ ] Choose promotion piece
