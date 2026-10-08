@@ -115,7 +115,11 @@ function render() {
       if (sq === selected) div.classList.add("selected");
       if (last && (sq === last.from || sq === last.to)) div.classList.add("lastmove");
       const hint = hints.find((m) => m.to === sq);
-      if (hint) div.classList.add("hint", hint.captured ? "capture" : "");
+      if (hint) {
+        div.classList.add("hint");
+        // NOTE: classList.add("") throws, so never pass an empty token.
+        if (hint.captured) div.classList.add("capture");
+      }
       div.addEventListener("click", onSquareClick);
       boardEl.appendChild(div);
     }
