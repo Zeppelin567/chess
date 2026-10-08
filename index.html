@@ -59,9 +59,13 @@
 <p class="note">Click a piece to select it (green dots mark legal moves), then click a target square. Promotion auto-queens.<br>
 Rules engine: chess.js (check / checkmate / stalemate / draw detection)</p>
 
-<!-- chess.js handles all the rules: legal moves, check, checkmate, stalemate, castling, en passant -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
-<script>
+<!-- chess.js handles all the rules: legal moves, check, checkmate, stalemate, castling, en passant.
+     NOTE: chess.js 0.13.4 ships as an ES module, so it must be imported from a
+     type="module" script -- a classic <script src> would throw a SyntaxError
+     on the `export` statement and kill the whole game. -->
+<script type="module">
+import { Chess } from "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js";
+
 const game = new Chess();   // chess.js owns all game state
 let selected = null;        // currently selected square, e.g. "e2"
 let flipped = false;        // flip the board (black at the bottom)
