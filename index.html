@@ -120,7 +120,6 @@ Rules engine: chess.js (check / checkmate / stalemate / draw detection)</p>
      NOTE: chess.js 0.13.4 ships as an ES module, so it must be imported from a
      type="module" script -- a classic <script src> would throw a SyntaxError
      on the `export` statement and kill the whole game. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
 <!-- Firebase (only needed for online play; harmless if it fails to load) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
@@ -155,13 +154,13 @@ function fmtClock(ms) {
 }
 
 function renderClocks() {
-  clockWEl.querySelector("span").textContent = fmtClock(clockMs.w);
-  clockBEl.querySelector("span").textContent = fmtClock(clockMs.b);
+  clockWSpan.textContent = fmtClock(clockMs.w);
+  clockBSpan.textContent = fmtClock(clockMs.b);
   const active = clocksLive();
-  clockWEl.classList.toggle("active", active && game.turn() === "w");
-  clockBEl.classList.toggle("active", active && game.turn() === "b");
-  clockWEl.classList.toggle("low", clockMs.w < 20000);
-  clockBEl.classList.toggle("low", clockMs.b < 20000);
+  clockWBox.classList.toggle("active", active && game.turn() === "w");
+  clockBBox.classList.toggle("active", active && game.turn() === "b");
+  clockWBox.classList.toggle("low", clockMs.w < 20000);
+  clockBBox.classList.toggle("low", clockMs.b < 20000);
 }
 
 setInterval(() => {
