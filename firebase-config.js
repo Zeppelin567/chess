@@ -23,10 +23,10 @@
 // Until a real config is pasted here, the page shows
 // "Online play is not configured yet".
 var firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
-  databaseURL: "PASTE_YOUR_DATABASE_URL_HERE",
-  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
+  apiKey: "AIzaSyAyVSEjLBG9O6e3ObNG0ODIy_G5FELmruc",
+  authDomain: "chess-bca6d.firebaseapp.com",
+  databaseURL: "https://chess-bca6d-default-rtdb.firebaseio.com",
+  projectId: "chess-bca6d",
 };
 var FIREBASE_CONFIGURED =
   typeof firebaseConfig !== "undefined" &&
