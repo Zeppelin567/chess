@@ -12,21 +12,24 @@
   h1 small { color: #888; font-weight: normal; font-size: 14px; }
   #app { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;
          justify-content: center; }
-  #board { display: grid; grid-template-columns: repeat(8, 64px);
-           grid-template-rows: repeat(8, 64px); border-radius: 6px;
+  #board { display: grid; grid-template-columns: repeat(8, 1fr);
+           grid-template-rows: repeat(8, 1fr); aspect-ratio: 1 / 1;
+           --board-size: min(100vw - 48px, 512px); /* minus body side padding */
+           width: var(--board-size); border-radius: 6px;
            overflow: hidden; user-select: none; }
   .sq { display: flex; align-items: center; justify-content: center;
-        font-size: 44px; cursor: pointer; position: relative; }
+        font-size: calc(var(--board-size) / 8 * 0.7);
+        cursor: pointer; position: relative; }
   .light { background: #f0d9b5; }
   .dark { background: #b58863; }
   .sq.selected { outline: 3px solid #829769; outline-offset: -3px; }
   .sq.lastmove { background: #cdd26a; }
   .sq.lastmove.dark { background: #aaa23a; }
   /* dots marking legal moves */
-  .sq.hint::after { content: ""; width: 20px; height: 20px; border-radius: 50%;
+  .sq.hint::after { content: ""; width: 31%; aspect-ratio: 1 / 1; border-radius: 50%;
                     background: rgba(20, 85, 30, 0.35); position: absolute; }
-  .sq.hint.capture::after { width: 56px; height: 56px; background: transparent;
-                    border: 5px solid rgba(20, 85, 30, 0.35); }
+  .sq.hint.capture::after { width: 88%; background: transparent;
+                    border: calc(var(--board-size) / 8 * 0.09) solid rgba(20, 85, 30, 0.35); }
   .piece.w { color: #fff; text-shadow: 0 0 3px #000, 0 2px 2px #000; }
   .piece.b { color: #000; text-shadow: 0 0 3px #fff, 0 1px 1px #555; }
   #side { width: 260px; display: flex; flex-direction: column; gap: 12px; }
@@ -73,7 +76,7 @@
 </style>
 </head>
 <body>
-<h1>♞ Chess <small>two-player game</small></h1>
+<h1>♞&#xFE0E; Chess <small>two-player game</small></h1>
 <div id="app">
   <div id="board"></div>
   <div id="side">
@@ -385,8 +388,8 @@ async function leaveRoom() {
 
 // ---------- game flow ----------
 const GLYPH = {
-  w: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
-  b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" },
+  w: { k: "♚\uFE0E", q: "♛\uFE0E", r: "♜\uFE0E", b: "♝\uFE0E", n: "♞\uFE0E", p: "♟\uFE0E" },
+  b: { k: "♚\uFE0E", q: "♛\uFE0E", r: "♜\uFE0E", b: "♝\uFE0E", n: "♞\uFE0E", p: "♟\uFE0E" },
 };
 const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };   // piece values, for the captured tally
 
