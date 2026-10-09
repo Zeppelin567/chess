@@ -139,6 +139,7 @@ let pendingPromo = null;    // { from, to } while the promotion dialog is open
 // ---------- clocks ----------
 let clockMs = { w: 10 * 60000, b: 10 * 60000 };
 let lastTick = Date.now();
+let lastClockPush = 0;        // last clocks persist while opponent away
 
 function resetClocks() {
   const mins = parseInt(timeControl.value, 10) || 10;
@@ -176,17 +177,28 @@ setInterval(() => {
   // each client ticks BOTH clocks locally and the opponent's clock stays
   // live on screen. onRoomUpdate re-syncs any drift on room writes.
   clockMs[t] -= dt;
+  // While the opponent is away, persist the clocks every few seconds so the
+  // decay survives even if I disconnect too.
+  if (mode === "online" && roomRef && !oppOnline && now - lastClockPush > 5000) {
+    lastClockPush = now;
+    roomRef.update({ clocks: { w: Math.max(0, Math.round(clockMs.w)), b: Math.max(0, Math.round(clockMs.b)) } }).catch(() => {});
+  }
   if (clockMs[t] <= 0) {
     clockMs[t] = 0;
-    // In online play each client only flags its OWN side; the opponent's
-    // client is authoritative for declaring their own flag.
-    if (mode === "online" && t !== myColor) { renderClocks(); return; }
+    // Each client normally only flags its OWN side — EXCEPT when the opponent
+    // has disconnected: then the remaining client declares the flag so a dead
+    // opponent can't stall the game. Clocks run for offline players either way.
+    const oppGone = mode === "online" && t !== myColor && !oppOnline;
+    if (mode === "online" && t !== myColor && !oppGone) { renderClocks(); return; }
     const w = t === "w" ? "b" : "w";
     gameOver = {
       winner: w, reason: "time",
       text: (w === "w" ? "White" : "Black") + " wins on time ⏰",
     };
-    if (mode === "online") pushMove();
+    if (mode === "online") {
+      if (oppGone) declareResult(w);
+      else pushMove();
+    }
     render();
     return;
   }
@@ -199,6 +211,7 @@ let myColor = null;           // 'w' | 'b' when online
 let roomRef = null;
 let roomCode = "";
 let roomStatus = "waiting";   // local mirror of room.status
+let oppOnline = false;        // is the opponent currently connected?
 let db = null;
 
 function initFirebaseOnce() {
@@ -249,7 +262,7 @@ function pushMove() {
       room.moves = moves;
       room.turn = turn;
       room.clocks = clocks;
-      if (res) { room.status = "finished"; room.result = res; }
+      if (res) { room.status = "finished"; room.result = res; room.finishedAt = firebase.database.ServerValue.TIMESTAMP; }
       else if (room.status !== "finished") { room.status = "playing"; }
       return room;
     },
@@ -269,11 +282,32 @@ function pushMove() {
   );
 }
 
+// Write a finished result directly. Used when the opponent disconnected and
+// flagged on my clock: pushMove's "only the side to move may write" check
+// would abort since it's not my turn.
+function declareResult(winner) {
+  if (mode !== "online" || !roomRef) return;
+  if (roomStatus === "finished") return;  // already recorded — don't rewrite
+  roomStatus = "finished";               // lock locally before the async write
+  const res = winner === "w" ? "1-0" : "0-1";
+  roomRef.update({
+    status: "finished",
+    result: res,
+    finishedAt: firebase.database.ServerValue.TIMESTAMP,
+    clocks: { w: Math.max(0, Math.round(clockMs.w)), b: Math.max(0, Math.round(clockMs.b)) },
+  }).catch(() => {});
+}
+
 function updatePresenceUI(room) {
   const p = room.players || {};
   const opp = myColor === "w" ? "b" : "w";
   const me = myColor === "w" ? "White" : "Black";
   const oppName = opp === "w" ? "White" : "Black";
+  if (roomStatus === "finished") {
+    const spec = myColor ? "" : "Spectating — ";
+    setOnlineStatus(spec + 'Room "' + roomCode + '" — game over. ' + (gameOver ? gameOver.text : ""));
+    return;
+  }
   if (roomStatus === "waiting") {
     setOnlineStatus('Room "' + roomCode + '" — you are ' + me + ". Waiting for opponent…");
   } else if (!p[opp]) {
@@ -290,6 +324,10 @@ function onRoomUpdate(snap) {
   const room = snap.val();
   if (!room) { setOnlineStatus("Room was closed."); return; }
   roomStatus = room.status || "waiting";
+  if (myColor) {
+    const o = myColor === "w" ? "b" : "w";
+    oppOnline = !!(room.players && room.players[o]);
+  }
   // Adopt the OPPONENT's clock (mine is authoritative locally).
   if (room.clocks && myColor) {
     const opp = myColor === "w" ? "b" : "w";
@@ -334,7 +372,16 @@ async function joinRoom() {
   const tcMin = parseInt(timeControl.value, 10) || 10;
   // Start from a fresh board for online play.
   game.reset(); selected = null; gameOver = null; hidePromoModal();
-  if (!snap.exists()) {
+  let room = snap.exists() ? snap.val() : null;
+  // Finished games are kept for 24h so both sides can see the result; then
+  // the room data is deleted and the code becomes reusable for a new game.
+  if (room && room.status === "finished" && typeof room.finishedAt === "number" &&
+      Date.now() - room.finishedAt > 24 * 3600 * 1000) {
+    try { await ref.remove(); } catch (e) { /* already gone */ }
+    room = null;
+  }
+  const finished = !!room && room.status === "finished";
+  if (!room) {
     // I create the room -> I am White.
     myColor = "w";
     clockMs = { w: tcMin * 60000, b: tcMin * 60000 };
@@ -350,23 +397,25 @@ async function joinRoom() {
       createdAt: firebase.database.ServerValue.TIMESTAMP,
     });
   } else {
-    // Room exists -> I join as Black.
-    const room = snap.val();
-    if (room.players && room.players.b && room.status !== "finished") {
+    // Room exists. Finished games are view-only: join as a spectator
+    // (myColor = null) so we never claim a player slot or reopen the game.
+    if (!finished && room.players && room.players.b) {
       setOnlineStatus("Room is full — try another code.");
       return;
     }
-    myColor = "b";
+    myColor = finished ? null : "b";
     (room.moves || []).forEach((m) => game.move(m));
     if (room.clocks) clockMs = { w: room.clocks.w, b: room.clocks.b };
     if (room.tc) timeControl.value = String(room.tc);
-    await ref.update({ "players/b": true, status: "playing" });
+    if (!finished) {
+      await ref.update({ "players/b": true, status: "playing" });
+    }
   }
   roomRef = ref;
   roomCode = code;
   mode = "online";
-  roomStatus = myColor === "w" ? "waiting" : "playing";
-  ref.child("players/" + myColor).onDisconnect().remove();
+  roomStatus = finished ? "finished" : (myColor === "w" ? "waiting" : "playing");
+  if (myColor) ref.child("players/" + myColor).onDisconnect().remove();
   ref.on("value", onRoomUpdate);
   joinUI(true);
   onRoomUpdate(await ref.get());
@@ -375,9 +424,10 @@ async function joinRoom() {
 async function leaveRoom() {
   if (roomRef) {
     roomRef.off();
-    try { await roomRef.child("players/" + myColor).remove(); } catch (e) { /* ignore */ }
+    if (myColor) { try { await roomRef.child("players/" + myColor).remove(); } catch (e) { /* ignore */ } }
   }
   roomRef = null; myColor = null; mode = "local";
+  oppOnline = false;
   roomStatus = "waiting"; roomCode = "";
   game.reset(); selected = null; gameOver = null; hidePromoModal();
   resetClocks();
