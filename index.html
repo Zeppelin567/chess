@@ -165,16 +165,19 @@ function renderClocks() {
 
 setInterval(() => {
   const now = Date.now();
-  const dt = now - lastTick;
+  const dt = Math.min(now - lastTick, 1000); // clamp: timers throttle when tab is hidden
   lastTick = now;
   if (!clocksLive()) return;
-  // In online play each client only flags its OWN side; the opponent's
-  // client is authoritative for declaring their own flag.
-  if (mode === "online" && game.turn() !== myColor) { renderClocks(); return; }
   const t = game.turn();
+  // Chess clocks are deterministic: only the side to move ticks down, so
+  // each client ticks BOTH clocks locally and the opponent's clock stays
+  // live on screen. onRoomUpdate re-syncs any drift on room writes.
   clockMs[t] -= dt;
   if (clockMs[t] <= 0) {
     clockMs[t] = 0;
+    // In online play each client only flags its OWN side; the opponent's
+    // client is authoritative for declaring their own flag.
+    if (mode === "online" && t !== myColor) { renderClocks(); return; }
     const w = t === "w" ? "b" : "w";
     gameOver = {
       winner: w, reason: "time",
