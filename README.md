@@ -9,12 +9,36 @@ A **two-player chess game** that runs entirely in the browser — no install nee
 
 ## Features
 
-- Click a piece to select it — green dots mark legal moves (ring = capture), then click a target square
+- Click/tap a piece and its target square, or drag the piece with a mouse, pen or touch screen. Dots mark legal moves; rings mark captures.
+- **Responsive board** — coordinates, last-move and check highlights, with player clocks above and below the board on desktop and mobile
+- **Keyboard controls** — Tab into the board, use arrow keys to explore, Enter/Space to select or move, and Escape to deselect. Promotion choices support Tab and Escape.
 - **Chess clocks** — configurable time control (1/3/5/10/15/30 min per side); flagging loses the game
 - **Promotion picker** — choose queen / rook / bishop / knight when a pawn promotes
 - **Online play** — create or join a room with a code; moves, clocks and results sync in realtime (first to join plays White)
 - Flip board view, captured pieces + material score, move list
 - Check / checkmate / stalemate / draws detected automatically
+- **PGN export** — copy or download the move history with date, result and original time control for use in chess analysis tools. Unfinished games export with result `*`.
+
+Clocks start after White's first move locally. The current player is charged for elapsed time even when the tab is in the background. Choose a time control before starting a game; use **New game** to reset the board and clocks.
+
+## Development and checks
+
+No build step is required. To preview with a local web server:
+
+```sh
+python3 -m http.server 3011 --bind 127.0.0.1
+```
+
+Open http://127.0.0.1:3011/. Internet access is still needed for the CDN libraries.
+
+With Node.js 22 or newer, install the development dependencies and run the regression tests:
+
+```sh
+npm ci
+npm test
+```
+
+Tests run the page's actual game module in JSDOM with the same chess.js version, a controlled clock and no Firebase connection. They cover elapsed time, move deadlines, promotion, material counts, board controls and PGN round trips. Browser checks are still needed for visual layout, physical pointer input, clipboard permissions and downloads. Online clocks remain client-controlled; these tests do not validate real two-device Firebase synchronization.
 
 ## Tech
 
