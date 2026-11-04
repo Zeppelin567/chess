@@ -3,27 +3,37 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { Chess } from 'chess.js';
 import { JSDOM } from 'jsdom';
+import { ComputerEngine, DIFFICULTIES } from '../computer.js';
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const source = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
-  .replace(/^import .*?;\s*$/m, '');
+  .replace(/^import .*?;\s*$/gm, '');
 
 function app(t) {
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://example.test/chess/' });
-  t.after(() => dom.window.close());
+  t.after(async () => { window.testing?.engine.stop(); await new Promise(resolve => setImmediate(resolve)); dom.window.close(); });
   const { window } = dom;
   let now = 1_000_000;
   let tick;
+  const workers = [];
+  window.Worker = class {
+    constructor() { this.commands = []; workers.push(this); }
+    postMessage(command) { this.commands.push(command); }
+    terminate() { this.terminated = true; }
+    emit(data) { this.onmessage?.({ data }); }
+  };
+  window.ComputerEngine = ComputerEngine;
+  window.DIFFICULTIES = DIFFICULTIES;
   window.Chess = Chess;
   window.Date.now = () => now;
   window.setInterval = (callback) => { tick = callback; };
   window.eval(source + `\nwindow.testing = {
-    game, doMove, render, renderCaptured, pgnText,
-    state: () => ({ clocks: { ...clockMs }, gameOver, pendingPromo }),
+    game, doMove, render, renderCaptured, pgnText, engine, playComputerMove,
+    state: () => ({ clocks: { ...clockMs }, gameOver, pendingPromo, mode, humanColor, computerState }),
   };`);
   const clickSquare = (sq) => window.document.querySelector(`[data-square="${sq}"]`).click();
   return {
-    ...window.testing, window, document: window.document, clickSquare,
+    ...window.testing, workers, window, document: window.document, clickSquare,
     advance(ms, runTimer = true) { now += ms; if (runTimer) tick(); },
     control(minutes) {
       const select = window.document.querySelector('#timeControl');
@@ -188,4 +198,114 @@ test('clipboard failure provides a download fallback instead of reporting succes
   a.document.querySelector('#copyPgn').click();
   await new Promise(resolve => setImmediate(resolve));
   assert.match(a.document.querySelector('#exportStatus').textContent, /Download PGN/);
+});
+
+const flush = () => new Promise(resolve => setImmediate(resolve));
+function start(a, color = 'w') {
+  a.document.querySelector('#gameMode').value = 'computer';
+  a.document.querySelector('#computerColor').value = color;
+  a.document.querySelector('#newGame').click();
+  return a.workers.at(-1);
+}
+async function ready(worker) { worker.emit('uciok'); worker.emit('readyok'); await flush(); }
+
+test('computer replies to human moves and blocks input on its turn', async t => {
+  const a = app(t), worker = start(a);
+  a.advance(120_000);
+  assert.equal(a.state().clocks.w, 600_000);
+  await ready(worker);
+  a.doMove('e2', 'e4');
+  a.doMove('e7', 'e5');
+  assert.deepEqual(a.game.history(), ['e4']);
+  await flush();
+  assert.ok(worker.commands.includes('position startpos moves e2e4'));
+  worker.emit('bestmove e7e5');
+  await flush();
+  assert.deepEqual(a.game.history(), ['e4', 'e5']);
+});
+
+test('playing Black flips the board and starts with a computer move', async t => {
+  const a = app(t), worker = start(a, 'b');
+  await ready(worker);
+  assert.equal(a.document.querySelector('#board .sq').dataset.square, 'h1');
+  worker.emit('bestmove d2d4');
+  await flush();
+  assert.deepEqual(a.game.history(), ['d4']);
+  a.doMove('d7', 'd5');
+  assert.deepEqual(a.game.history(), ['d4', 'd5']);
+});
+
+test('restarting terminates the old engine and ignores its late reply', async t => {
+  const a = app(t), old = start(a, 'b');
+  await ready(old);
+  const next = start(a);
+  old.emit('bestmove e2e4');
+  await ready(next);
+  assert.ok(old.terminated);
+  assert.equal(a.game.history().length, 0);
+  assert.equal(a.state().computerState, 'ready');
+});
+
+test('engine failures pause clocks and retry continues the same position', async t => {
+  const a = app(t), worker = start(a);
+  await ready(worker);
+  a.doMove('e2', 'e4');
+  await flush();
+  a.advance(1000);
+  worker.onerror({ preventDefault() {} });
+  await flush();
+  assert.equal(a.state().computerState, 'error');
+  const before = a.state().clocks.b;
+  a.advance(120_000);
+  assert.equal(a.state().clocks.b, before);
+  a.document.querySelector('#retryComputer').click();
+  const retry = a.workers.at(-1);
+  await ready(retry);
+  assert.ok(retry.commands.includes('position startpos moves e2e4'));
+  retry.emit('bestmove c7c5'); await flush();
+  assert.deepEqual(a.game.history(), ['e4', 'c5']);
+});
+
+test('timeout cancels the search and late moves cannot change a finished game', async t => {
+  const a = app(t); a.control(1);
+  const worker = start(a); await ready(worker);
+  a.doMove('e2', 'e4'); await flush();
+  a.advance(60_001);
+  worker.emit('bestmove e7e5'); await flush();
+  assert.equal(a.state().gameOver.winner, 'w');
+  assert.ok(worker.terminated);
+  assert.deepEqual(a.game.history(), ['e4']);
+});
+
+test('resignation exports the computer opponent and result; local mode restores both players', async t => {
+  const a = app(t), worker = start(a); await ready(worker);
+  a.window.confirm = () => true;
+  a.document.querySelector('#resignComputer').click();
+  assert.match(a.pgnText(), /Stockfish \(Medium\)/);
+  assert.match(a.pgnText(), /\[Result "0-1"\]/);
+  a.document.querySelector('#gameMode').value = 'local';
+  a.document.querySelector('#newGame').click();
+  a.doMove('e2', 'e4'); a.doMove('e7', 'e5');
+  assert.deepEqual(a.game.history(), ['e4', 'e5']);
+});
+
+test('computer underpromotion uses the setup FEN and ends a drawn game', async t => {
+  const a = app(t), worker = start(a); await ready(worker);
+  a.game.load('7k/8/8/8/8/8/p7/7K b - - 0 1');
+  a.render(); a.playComputerMove(); await flush();
+  assert.ok(worker.commands.some(command => command.startsWith('position fen 7k/')));
+  worker.emit('bestmove a2a1n'); await flush();
+  assert.equal(a.game.get('a1').type, 'n');
+  assert.equal(a.state().gameOver.reason, 'draw');
+  assert.ok(worker.terminated);
+});
+
+test('human checkmate ends the game without starting another search', async t => {
+  const a = app(t), worker = start(a); await ready(worker);
+  for (const san of ['e4', 'e5', 'Bc4', 'Nc6', 'Qh5', 'Nf6']) a.game.move(san);
+  const searches = worker.commands.filter(command => command.startsWith('go ')).length;
+  a.doMove('h5', 'f7'); await flush();
+  assert.equal(a.state().gameOver.winner, 'w');
+  assert.equal(worker.commands.filter(command => command.startsWith('go ')).length, searches);
+  assert.ok(worker.terminated);
 });

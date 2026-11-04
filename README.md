@@ -1,13 +1,16 @@
 # ♞ Chess
 
-A **two-player chess game** that runs entirely in the browser — no install needed. Play locally, or online with a friend via a room code.
+A **chess game with local, online and computer play** that runs entirely in the browser — no install needed. Play against Stockfish, locally with a friend, or online via a room code.
 
 ## Play
 
 - **Online:** https://zeppelin567.github.io/chess/ (no download, just open the link)
-- **Locally:** open `index.html` in a browser (internet required to load the `chess.js` and Firebase libraries)
+- **Locally:** run the HTTP server below and open its URL; do not open `index.html` via `file://` because ES modules and the computer worker need HTTP.
 
 ## Features
+
+- **Computer opponent** — Stockfish 17.1 runs in a Web Worker on your device, without a backend or API key. Choose Computer, Easy / Medium / Hard / Expert and White / Black / Random, then **New game**. Playing Black flips the board automatically. Settings apply to the next game.
+- **Recoverable engine loading** — about 7 MB on the first download. Clocks pause while loading or after an engine failure; **Retry computer** resumes the same position. Resign ends the game and records its result in PGN. Restarting cancels old searches.
 
 - Click/tap a piece and its target square, or drag the piece with a mouse, pen or touch screen. Dots mark legal moves; rings mark captures.
 - **Responsive board** — coordinates, last-move and check highlights, with player clocks above and below the board on desktop and mobile
@@ -19,7 +22,7 @@ A **two-player chess game** that runs entirely in the browser — no install nee
 - Check / checkmate / stalemate / draws detected automatically
 - **PGN export** — copy or download the move history with date, result and original time control for use in chess analysis tools. Unfinished games export with result `*`.
 
-Clocks start after White's first move locally. The current player is charged for elapsed time even when the tab is in the background. Choose a time control before starting a game; use **New game** to reset the board and clocks.
+Clocks start after White's first move locally and when you play White against the computer. When you play Black, the computer's opening move is timed once loading finishes. The current player is charged for elapsed time even when the tab is in the background. Choose a time control before starting a game; use **New game** to reset the board and clocks.
 
 ## Development and checks
 
@@ -38,11 +41,13 @@ npm ci
 npm test
 ```
 
-Tests run the page's actual game module in JSDOM with the same chess.js version, a controlled clock and no Firebase connection. They cover elapsed time, move deadlines, promotion, material counts, board controls and PGN round trips. Browser checks are still needed for visual layout, physical pointer input, clipboard permissions and downloads. Online clocks remain client-controlled; these tests do not validate real two-device Firebase synchronization.
+Tests run the page's actual game module in JSDOM with the same chess.js version, a controlled clock and no Firebase connection. They cover elapsed time, move deadlines, promotion, material counts, board controls, PGN round trips, the UCI protocol, computer turns, retry and cancellation. Browser checks are still needed for visual layout, physical pointer input, clipboard permissions and downloads. Online clocks remain client-controlled; these tests do not validate real two-device Firebase synchronization.
 
 ## Tech
 
-- `index.html` — board UI + game logic (single self-contained file)
+- `index.html` — board UI + game logic
+- `computer.js` — UCI worker lifecycle, difficulty settings and search cancellation
+- `vendor/stockfish/` — pinned single-thread WebAssembly engine and GPLv3 license (see its README)
 - `firebase-config.js` — your Firebase web config for online play (see below)
 - Rules engine: [chess.js](https://github.com/jhlywa/chess.js) (via CDN)
 - Online sync: [Firebase Realtime Database](https://firebase.google.com/docs/database) (via CDN)
@@ -68,4 +73,4 @@ Until a real config is pasted, the page shows "Online play is not configured yet
 - [x] Chess clocks
 - [x] Promotion piece choice
 - [x] Online play via room codes
-- [ ] Play vs computer (Stockfish)
+- [x] Play vs computer (Stockfish)

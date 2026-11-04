@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chess ♞ Two-Player Game</title>
+<title>Chess ♞ Play a Friend or Computer</title>
 <style>
   :root { color-scheme: dark; --accent: #a6c985; --muted: #9ba69d; }
   * { box-sizing: border-box; }
@@ -120,7 +120,7 @@
 </head>
 <body>
 <header class="page-header">
-  <h1>♞&#xFE0E; Chess <small>Local &amp; online</small></h1>
+  <h1>♞&#xFE0E; Chess <small>Friends &amp; computer</small></h1>
   <span class="session-badge" id="sessionBadge">Local game</span>
 </header>
 <main id="app">
@@ -153,6 +153,27 @@
     </section>
     <section class="panel" aria-label="Game settings">
       <h2 class="panel-title">Game settings</h2>
+      <label for="gameMode">Opponent</label>
+      <select id="gameMode" style="width:100%;margin:6px 0 10px">
+        <option value="local">Local two-player</option>
+        <option value="computer">Computer · Stockfish</option>
+      </select>
+      <div id="computerSettings" class="hidden">
+        <div class="row" style="margin-bottom:8px">
+          <select id="computerColor" aria-label="Your side for the next game">
+            <option value="w">Play as White</option>
+            <option value="b">Play as Black</option>
+            <option value="random">Random side</option>
+          </select>
+          <select id="computerLevel" aria-label="Computer difficulty for the next game">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+            <option value="expert">Expert</option>
+          </select>
+        </div>
+        <p class="dim">Choose your settings, then select New game.</p>
+      </div>
       <div class="row">
         <select id="timeControl" aria-label="Time control" title="Time control for a new game">
           <option value="1">1 min</option>
@@ -165,6 +186,9 @@
         <button id="newGame">New game</button>
       </div>
       <button class="secondary" id="flipBoard" style="width:100%;margin-top:8px">Flip board</button>
+      <p id="computerStatus" class="dim" role="status" aria-live="polite"></p>
+      <button id="retryComputer" class="secondary hidden">Retry computer</button>
+      <button id="resignComputer" class="secondary hidden">Resign</button>
     </section>
     <section class="panel" id="onlineBox" aria-label="Online play">
       <h2 class="panel-title">Play with a friend</h2>
@@ -172,7 +196,7 @@
         <input id="roomCode" aria-label="Room code" placeholder="Room code" maxlength="24" autocapitalize="none" spellcheck="false">
         <button id="joinBtn">Join</button>
       </div>
-      <div id="onlineStatus" class="dim" role="status" aria-live="polite">Enter the same room code on two devices.</div>
+      <div id="onlineStatus" class="dim" role="status" aria-live="polite">Enter the same room code on two devices. For online play, start a Local two-player game first.</div>
       <button id="leaveBtn" class="secondary hidden">Leave room</button>
     </section>
   </aside>
@@ -187,6 +211,8 @@
 
 <p class="note">Legal moves are marked with dots; rings mark captures.<br>
 Rules powered by chess.js · PGN files work with common chess analysis tools.</p>
+<p class="note">Computer play: <a href="https://github.com/nmrugg/stockfish.js/tree/v17.1.0">Stockfish.js 17.1</a> ·
+<a href="vendor/stockfish/Copying.txt">GPLv3 license</a> · Runs in your browser.</p>
 
 <!-- chess.js handles all the rules: legal moves, check, checkmate, stalemate, castling, en passant.
      NOTE: chess.js 0.13.4 ships as an ES module, so it must be imported from a
@@ -198,6 +224,7 @@ Rules powered by chess.js · PGN files work with common chess analysis tools.</p
 <script src="firebase-config.js"></script>
 <script type="module">
 import { Chess } from "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js";
+import { ComputerEngine, DIFFICULTIES } from "./computer.js";
 
 const game = new Chess();   // chess.js owns all game state
 let selected = null;        // currently selected square, e.g. "e2"
@@ -223,7 +250,9 @@ function resetClocks() {
 
 function clocksLive() {
   if (gameOver) return false;
-  return mode === "local" ? game.history().length > 0 : roomStatus === "playing";
+  if (mode === "online") return roomStatus === "playing";
+  if (mode === "computer" && ["loading", "error"].includes(computerState)) return false;
+  return game.history().length > 0 || (mode === "computer" && humanColor === "b");
 }
 
 function fmtClock(ms) {
@@ -272,6 +301,7 @@ function settleClocks(now = Date.now()) {
     };
     hidePromoModal();
     selected = null;
+    if (mode === "computer") stopComputer();
     if (mode === "online") {
       if (oppGone) declareResult(w);
       else pushMove();
@@ -291,7 +321,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // ---------- online play (Firebase Realtime Database) ----------
-let mode = "local";           // "local" | "online"
+let mode = "local";           // "local" | "online" | "computer"
 let myColor = null;           // 'w' | 'b' when online
 let roomRef = null;
 let roomCode = "";
@@ -317,6 +347,8 @@ function joinUI(online) {
   leaveBtn.classList.toggle("hidden", !online);
   newGameBtn.disabled = online;
   timeControl.disabled = online;
+  gameModeSelect.disabled = online;
+  computerColorSelect.disabled = computerLevelSelect.disabled = online;
 }
 
 function resultCode() {
@@ -442,6 +474,7 @@ function onRoomUpdate(snap) {
 }
 
 async function joinRoom() {
+  if (mode === "computer") return;
   if (!initFirebaseOnce()) {
     setOnlineStatus("Online play is not configured yet — add your Firebase config (see README).");
     return;
@@ -543,6 +576,80 @@ const leaveBtn = document.getElementById("leaveBtn");
 const onlineStatusEl = document.getElementById("onlineStatus");
 const promoModal = document.getElementById("promoModal");
 const promoChoices = document.getElementById("promoChoices");
+const gameModeSelect = document.getElementById("gameMode");
+const computerColorSelect = document.getElementById("computerColor");
+const computerLevelSelect = document.getElementById("computerLevel");
+const computerStatusEl = document.getElementById("computerStatus");
+const retryComputerBtn = document.getElementById("retryComputer");
+const resignComputerBtn = document.getElementById("resignComputer");
+
+const engine = new ComputerEngine({
+  createWorker: () => new Worker(new URL("vendor/stockfish/stockfish-17.1-lite-single-03e3232.js", document.baseURI)),
+});
+let humanColor = "w";
+let difficulty = "medium";
+let computerState = "idle";
+let computerError = "";
+let computerEpoch = 0;
+let computerRequest = false;
+
+function stopComputer() {
+  computerEpoch++;
+  computerRequest = false;
+  engine.stop();
+  computerState = "idle";
+}
+
+function computerFailure(error, epoch) {
+  if (epoch !== computerEpoch || mode !== "computer" || gameOver) return;
+  settleClocks();
+  if (gameOver) return;
+  computerState = "error";
+  computerRequest = false;
+  computerError = error.message;
+  render();
+}
+
+async function prepareComputer() {
+  const epoch = computerEpoch;
+  computerState = "loading";
+  computerError = "";
+  render();
+  try {
+    await engine.ready();
+    if (epoch !== computerEpoch || mode !== "computer" || gameOver) return;
+    computerState = "ready";
+    lastTick = Date.now();
+    render();
+    playComputerMove();
+  } catch (error) {
+    computerFailure(error, epoch);
+  }
+}
+
+async function playComputerMove() {
+  if (mode !== "computer" || gameOver || game.turn() === humanColor || computerRequest) return;
+  const epoch = computerEpoch;
+  const position = game.fen();
+  computerRequest = true;
+  computerState = "thinking";
+  render();
+  try {
+    const move = await engine.search({
+      moves: game.history({ verbose: true }).map(m => m.from + m.to + (m.promotion || "")),
+      initialFen: game.header().FEN,
+      difficulty,
+    });
+    if (epoch !== computerEpoch || mode !== "computer" || gameOver || game.fen() !== position) return;
+    computerRequest = false;
+    const legal = game.moves({ verbose: true }).some(m => m.from + m.to + (m.promotion || "") === move);
+    if (!legal) throw new Error("The computer could not find a legal move. Please retry.");
+    computerState = "ready";
+    doMove(move.slice(0, 2), move.slice(2, 4), move[4], "computer");
+  } catch (error) {
+    computerFailure(error, epoch);
+  }
+}
 
 // (query clock spans after DOM is ready)
 const clockWSpan = document.querySelector("#clockW span");
@@ -572,17 +679,20 @@ function updateGameOver() {
   }
 }
 
-function doMove(from, to, promotion) {
+function doMove(from, to, promotion, source = "human") {
   settleClocks();
   if (gameOver) return;
   if (mode === "online" && (roomStatus !== "playing" || game.turn() !== myColor)) return;
+  if (mode === "computer" && (computerState === "loading" || computerState === "error" ||
+      (source === "computer" ? game.turn() === humanColor : game.turn() !== humanColor))) return;
   const mv = game.move({ from, to, promotion });
   if (!mv) return;
   selected = null;
   updateGameOver();
   if (mode === "online") pushMove();
-  if (gameOver) hidePromoModal();
+  if (gameOver) { hidePromoModal(); if (mode === "computer") stopComputer(); }
   render();
+  if (!gameOver) playComputerMove();
 }
 
 // Display coords (row, col) -> square name ("e4").
@@ -655,12 +765,14 @@ function render() {
   timeControl.disabled = mode === "online" || (game.history().length > 0 && !gameOver);
   copyPgnBtn.disabled = downloadPgnBtn.disabled = game.history().length === 0;
   renderPlayers();
+  renderComputer();
   if (restoreFocus) boardEl.querySelector(`[data-square="${focusedSquare}"]`)?.focus({ preventScroll: true });
 }
 
 function selectSquare(sq) {
   settleClocks();
   if (gameOver) return;
+  if (mode === "computer" && (game.turn() !== humanColor || ["loading", "error"].includes(computerState))) return;
   focusedSquare = sq;
   if (mode === "online") {
     if (roomStatus !== "playing") { setOnlineStatus("Waiting for opponent to join…"); return; }
@@ -693,10 +805,31 @@ function renderPlayers() {
   area.insertBefore(flipped ? white : black, boardEl);
   area.insertBefore(flipped ? black : white, document.getElementById("boardHelp"));
   boardEl.setAttribute("aria-label", "Chess board, " + (flipped ? "Black" : "White") + " at the bottom");
-  document.getElementById("sessionBadge").textContent = mode === "local" ? "Local game" : myColor ? "Online game" : "Spectating";
+  document.getElementById("sessionBadge").textContent = mode === "computer" ? "vs Stockfish · " + DIFFICULTIES[difficulty].label
+    : mode === "local" ? "Local game" : myColor ? "Online game" : "Spectating";
   for (const color of ["w", "b"]) {
-    document.getElementById(color === "w" ? "detailW" : "detailB").textContent = mode === "local"
-      ? "Local player" : myColor === color ? "You" : myColor ? "Opponent" : "Player";
+    document.getElementById(color === "w" ? "detailW" : "detailB").textContent = mode === "computer"
+      ? color === humanColor ? "You" : "Stockfish"
+      : mode === "local" ? "Local player" : myColor === color ? "You" : myColor ? "Opponent" : "Player";
+  }
+}
+
+function renderComputer() {
+  document.getElementById("computerSettings").classList.toggle("hidden", gameModeSelect.value !== "computer");
+  const active = mode === "computer";
+  joinBtn.disabled = roomCodeInput.disabled = mode === "online" || active;
+  retryComputerBtn.classList.toggle("hidden", !active || computerState !== "error" || !!gameOver);
+  resignComputerBtn.classList.toggle("hidden", !active || !!gameOver);
+  if (!active) {
+    computerStatusEl.textContent = gameModeSelect.value === "computer" ? "Select New game to play against Stockfish." : "";
+  } else if (gameOver) {
+    computerStatusEl.textContent = "Select New game to play again.";
+  } else if (computerState === "loading") {
+    computerStatusEl.textContent = "Loading Stockfish… The first download is about 7 MB. Clocks are paused.";
+  } else if (computerState === "error") {
+    computerStatusEl.textContent = computerError + " Clocks are paused.";
+  } else {
+    computerStatusEl.textContent = game.turn() === humanColor ? "Your move." : "Stockfish is thinking…";
   }
 }
 
@@ -742,6 +875,7 @@ boardEl.addEventListener("pointerdown", (event) => {
   suppressPointerClick = false;
   if (event.button !== 0 || event.isPrimary === false || gameOver || pendingPromo) return;
   if (mode === "online" && (roomStatus !== "playing" || game.turn() !== myColor)) return;
+  if (mode === "computer" && (game.turn() !== humanColor || ["loading", "error"].includes(computerState))) return;
   const from = event.target.closest(".sq")?.dataset.square;
   const piece = from && game.get(from);
   if (!piece || piece.color !== game.turn()) return;
@@ -798,6 +932,7 @@ function renderStatus() {
   if (mode === "online" && myColor) {
     text += game.turn() === myColor ? " (you)" : " (opponent)";
   }
+  if (mode === "computer") text += game.turn() === humanColor ? " (you)" : " (Stockfish)";
   statusEl.textContent = text;
 }
 
@@ -894,8 +1029,10 @@ function pgnText() {
   settleClocks();
   const pad = value => String(value).padStart(2, "0");
   const date = `${gameStartedAt.getFullYear()}.${pad(gameStartedAt.getMonth() + 1)}.${pad(gameStartedAt.getDate())}`;
-  game.header("Event", mode === "online" ? "Friendly online game" : "Local game",
-    "Site", location.origin, "Date", date, "Round", "-", "White", "White", "Black", "Black",
+  game.header("Event", mode === "computer" ? "Computer game" : mode === "online" ? "Friendly online game" : "Local game",
+    "Site", location.origin, "Date", date, "Round", "-",
+    "White", mode === "computer" ? humanColor === "w" ? "You" : "Stockfish (" + DIFFICULTIES[difficulty].label + ")" : "White",
+    "Black", mode === "computer" ? humanColor === "b" ? "You" : "Stockfish (" + DIFFICULTIES[difficulty].label + ")" : "Black",
     "Result", resultCode() || "*", "TimeControl", String(gameTimeControl));
   return game.pgn({ max_width: 80, newline_char: "\n" }) + "\n";
 }
@@ -923,12 +1060,39 @@ downloadPgnBtn.addEventListener("click", () => {
 // ---------- buttons ----------
 newGameBtn.addEventListener("click", () => {
   if (mode === "online") return;
+  stopComputer();
+  mode = gameModeSelect.value === "computer" ? "computer" : "local";
+  if (mode === "computer") {
+    humanColor = computerColorSelect.value === "random" ? Math.random() < 0.5 ? "w" : "b" : computerColorSelect.value;
+    difficulty = computerLevelSelect.value;
+    flipped = humanColor === "b";
+    focusedSquare = flipped ? "e7" : "e2";
+  }
   game.reset();
   selected = null;
   gameOver = null;
   hidePromoModal();
   resetClocks();
   exportStatusEl.textContent = "";
+  render();
+  if (mode === "computer") prepareComputer();
+});
+
+gameModeSelect.addEventListener("change", renderComputer);
+retryComputerBtn.addEventListener("click", () => {
+  if (mode !== "computer" || gameOver || computerState !== "error") return;
+  stopComputer();
+  prepareComputer();
+});
+resignComputerBtn.addEventListener("click", () => {
+  if (mode !== "computer" || gameOver) return;
+  settleClocks();
+  if (gameOver || !window.confirm("Resign this game against Stockfish?")) return;
+  stopComputer();
+  selected = null;
+  hidePromoModal();
+  const winner = humanColor === "w" ? "b" : "w";
+  gameOver = { winner, reason: "resignation", text: (winner === "w" ? "White" : "Black") + " wins — you resigned." };
   render();
 });
 
