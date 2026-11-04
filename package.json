@@ -1,0 +1,12 @@
+{
+  "name": "chess",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "chess.js": "0.13.4",
+    "jsdom": "^26.1.0"
+  }
+}
