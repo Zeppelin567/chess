@@ -16,6 +16,27 @@ A **two-player chess game** that runs entirely in the browser — no install nee
 - Flip board view, captured pieces + material score, move list
 - Check / checkmate / stalemate / draws detected automatically
 
+## Puzzles
+
+Weekly puzzles from the De Anza Chess Club — same puzzles as the club's
+Instagram ([@deanzachessclub](https://www.instagram.com/deanzachessclub)).
+Open the **🧩 Puzzles** tab (or go straight to
+https://zeppelin567.github.io/chess/#puzzles).
+
+- Click a piece to select it — green dots mark legal moves, then click a
+  target square. Every move is checked against the solution: a correct move
+  plays the opponent's reply, a wrong move shakes the board and counts as a
+  miss. Solve it to see the full solution.
+- **Hint / Reset / Flip** buttons; the board auto-flips so the side to move
+  is at the bottom. The **Archive** lists every posted puzzle — click one to
+  play it.
+- Puzzle data lives in the club repo
+  ([Zeppelin567/chess-club-puzzles](https://github.com/Zeppelin567/chess-club-puzzles))
+  and is fetched at runtime (`data/queue.json` + `data/puzzles.csv`), so the
+  puzzle here always matches the latest Instagram post.
+- **No account, no backend, no analytics.** Attempts and solved puzzles are
+  stored only in your own browser (localStorage) — nothing leaves your device.
+
 ## Tech
 
 - `index.html` — board UI + game logic (single self-contained file)
@@ -44,4 +65,5 @@ Until a real config is pasted, the page shows "Online play is not configured yet
 - [x] Chess clocks
 - [x] Promotion piece choice
 - [x] Online play via room codes
+- [x] Puzzles mode — weekly puzzles from the De Anza Chess Club (data from Zeppelin567/chess-club-puzzles)
 - [ ] Play vs computer (Stockfish)
