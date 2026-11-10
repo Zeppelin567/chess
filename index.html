@@ -73,10 +73,48 @@
   .promo-choices { display: flex; gap: 10px; }
   .promo-btn { font-size: 44px; width: 64px; height: 64px; padding: 0;
                background: #3a382f; }
+  /* ---- mode tabs + Puzzles mode (additive: the two-player game above is untouched) ---- */
+  #modeTabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  #modeTabs button { background: #262421; color: #bababa; }
+  #modeTabs button.active { background: #629924; color: #fff; }
+  /* in Puzzles mode, hide the two-player-only controls (clocks, online, etc.) */
+  body.puzzle-mode #clockB, body.puzzle-mode #clockW, body.puzzle-mode #captured,
+  body.puzzle-mode #onlineBox, body.puzzle-mode #timeControl,
+  body.puzzle-mode #newGame, body.puzzle-mode #flipBoard { display: none !important; }
+  #puzzlePanel { display: flex; flex-direction: column; gap: 12px; }
+  .puzzle-meta { color: #fff; font-size: 15px; line-height: 1.6; }
+  .puzzle-meta a { color: #7cb342; }
+  #puzzleError { background: #4a2323; color: #ffb4b4; border-radius: 6px;
+                 padding: 12px; font-size: 14px; line-height: 1.5; }
+  .solved { background: #262421; border: 2px solid #F0B93C; border-radius: 6px;
+            padding: 12px; color: #fff; font-size: 14px; line-height: 1.6; }
+  .solved-title { color: #F0B93C; font-weight: bold; margin-bottom: 6px; }
+  .sol-lines { font-family: ui-monospace, "SF Mono", Menlo, monospace;
+               font-size: 13px; margin-bottom: 8px; }
+  .solved a { color: #7cb342; }
+  .puzzle-archive-title { color: #fff; font-size: 14px; font-weight: bold;
+                          margin-bottom: 6px; }
+  .archive { list-style: none; margin: 0; padding: 0; background: #262421;
+             border-radius: 6px; max-height: 220px; overflow-y: auto; font-size: 14px; }
+  .archive li { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid #33302a; }
+  .archive li:last-child { border-bottom: none; }
+  .archive li:hover { background: #2e2b26; }
+  .archive li.current { border-left: 3px solid #F0B93C; padding-left: 9px; }
+  .sq.hint-square { outline: 3px solid #F0B93C; outline-offset: -3px; }
+  #board.shake { animation: board-shake 0.3s; }
+  @keyframes board-shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
 </style>
 </head>
 <body>
 <h1>♞&#xFE0E; Chess <small>two-player game</small></h1>
+<div id="modeTabs">
+  <button id="tabPlay" class="active" type="button">♞&#xFE0E; Play</button>
+  <button id="tabPuzzles" type="button">🧩 Puzzles</button>
+</div>
 <div id="app">
   <div id="board"></div>
   <div id="side">
@@ -84,6 +122,23 @@
     <div id="status">White to move</div>
     <div id="captured"></div>
     <ol id="moves"></ol>
+    <div id="puzzlePanel" class="hidden">
+      <div id="puzzleMeta" class="puzzle-meta">Loading…</div>
+      <div id="puzzleError" class="hidden"></div>
+      <div class="row">
+        <button id="puzzleHint" type="button">Hint</button>
+        <button id="puzzleReset" type="button">Reset</button>
+        <button id="puzzleFlip" type="button">Flip</button>
+      </div>
+      <button id="puzzleRetry" class="hidden" type="button">Try again</button>
+      <div id="puzzleSolved" class="solved hidden"></div>
+      <div>
+        <div class="puzzle-archive-title">Archive</div>
+        <ul id="puzzleArchive" class="archive"></ul>
+      </div>
+      <p class="dim">No account. No data leaves your device — your attempts and
+      solved puzzles are stored only in this browser.</p>
+    </div>
     <div class="clock" id="clockW">⚪ <span>10:00</span></div>
     <div class="row">
       <select id="timeControl" title="Time control">
@@ -678,6 +733,441 @@ leaveBtn.addEventListener("click", leaveRoom);
 // ---------- init ----------
 resetClocks();
 render();
+
+// ==================== Puzzles mode (additive) ====================
+// Weekly puzzles from the De Anza Chess Club. The puzzle data lives in the
+// club repo (Zeppelin567/chess-club-puzzles) and is fetched at runtime, so
+// the puzzle here always matches the latest Instagram post. No backend, no
+// analytics: attempts and solved state live only in this browser
+// (localStorage). The two-player game above is untouched: puzzles run on a
+// separate Chess instance with their own board renderer, and the shared
+// #status / #moves elements are restored by render() when you switch back.
+const PUZZLE_QUEUE_URL = "https://raw.githubusercontent.com/Zeppelin567/chess-club-puzzles/main/data/queue.json";
+const PUZZLE_CSV_URL = "https://raw.githubusercontent.com/Zeppelin567/chess-club-puzzles/main/data/puzzles.csv";
+const PUZZLE_STORE_KEY = "dacc-puzzles-v1";
+
+let puzzleMode = false;        // true while the Puzzles tab is active
+let puzzleLoaded = false;      // puzzle data fetched at least once
+let puzzleLoading = false;
+let puzzleQueue = [];          // queue.json entries
+let puzzlePool = {};           // puzzle id -> {id, theme, rating, side, fen, uci, san}
+let puzzleEntry = null;        // current queue entry
+let puzzle = null;             // {number, theme, rating, side, fen, solutionUci, solutionSan}
+let puzzleGame = null;         // Chess instance for the puzzle board
+let puzzlePly = 0;             // solution plies already played
+let puzzleAttempts = 0;        // wrong tries on this puzzle
+let puzzleSolved = false;
+let puzzleBusy = false;        // opponent reply is animating
+let puzzleSelected = null;     // currently selected square, e.g. "f6"
+let puzzleSavedFlipped = false;
+let puzzleReplyTimer = null;
+let puzzleHintTimer = null;
+
+const tabPlayBtn = document.getElementById("tabPlay");
+const tabPuzzlesBtn = document.getElementById("tabPuzzles");
+const puzzlePanel = document.getElementById("puzzlePanel");
+const puzzleMetaEl = document.getElementById("puzzleMeta");
+const puzzleErrorEl = document.getElementById("puzzleError");
+const puzzleSolvedEl = document.getElementById("puzzleSolved");
+const puzzleArchiveEl = document.getElementById("puzzleArchive");
+const puzzleRetryBtn = document.getElementById("puzzleRetry");
+
+function puzzleStars(rating) {
+  // Same 800-2000 -> 1..5 star scale as the Instagram post renderer.
+  const n = Math.max(1, Math.min(5, 1 + Math.floor((rating - 800) / 300)));
+  return "★".repeat(n) + "☆".repeat(5 - n);
+}
+
+function parsePuzzleCsv(text) {
+  // Small CSV parser: handles quoted fields (the FEN column is quoted).
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else field += ch;
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function pairPuzzleSan(san) {
+  // "Rb6+ Kc5 Bf2+ Be3 Bxe3#" -> ["1. Rb6+   Kc5", "2. Bf2+   Be3", "3. Bxe3#"]
+  const moves = san.split(/\s+/).filter(Boolean);
+  const lines = [];
+  for (let i = 0; i < moves.length; i += 2) {
+    lines.push((i / 2 + 1) + ". " + moves[i] + (moves[i + 1] ? "  " + moves[i + 1] : ""));
+  }
+  return lines;
+}
+
+function puzzleUciParts(u) {
+  return { from: u.slice(0, 2), to: u.slice(2, 4), promo: u.length > 4 ? u[4] : null };
+}
+
+function loadPuzzleStore() {
+  try { return JSON.parse(localStorage.getItem(PUZZLE_STORE_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+
+function savePuzzleStore(store) {
+  try { localStorage.setItem(PUZZLE_STORE_KEY, JSON.stringify(store)); }
+  catch (e) { /* storage unavailable (private mode): progress just won't persist */ }
+}
+
+function selectCurrentPuzzle() {
+  // NOTE: "posted" alone would pick #009 forever — its answer post never
+  // went out, so it is stuck in "posted" while #010-#012 are "answered".
+  // The current puzzle is the most recently published one: the
+  // highest-numbered entry that is posted OR answered. Only when nothing
+  // has been published yet do we fall back to the first queued entry (so
+  // next week's puzzle never leaks early).
+  const done = puzzleQueue.filter((e) => e.status === "posted" || e.status === "answered");
+  if (done.length) return done.sort((a, b) => b.number - a.number)[0];
+  const queued = puzzleQueue.filter((e) => e.status === "queued")
+    .sort((a, b) => a.number - b.number);
+  return queued[0] || null;
+}
+
+function setPuzzleStatus(text) { statusEl.textContent = text; }
+
+function renderPuzzleStatus() {
+  if (puzzleSolved) { statusEl.textContent = "Solved! 🎉 Checkmate."; return; }
+  const side = puzzle.side === "w" ? "White" : "Black";
+  const mateN = puzzle.theme.replace("mateIn", "");
+  let text = side + " to move — mate in " + mateN;
+  if (puzzleAttempts > 0) text += " · " + puzzleAttempts + (puzzleAttempts === 1 ? " miss" : " misses");
+  statusEl.textContent = text;
+}
+
+function renderPuzzleMoves() {
+  const history = puzzleGame.history();
+  movesEl.innerHTML = "";
+  for (let i = 0; i < history.length; i += 2) {
+    const li = document.createElement("li");
+    li.textContent = history[i] + (history[i + 1] ? "  " + history[i + 1] : "");
+    movesEl.appendChild(li);
+  }
+  movesEl.scrollTop = movesEl.scrollHeight;
+}
+
+function renderPuzzle() {
+  // Same board-building pattern as render(), but for the puzzle position.
+  const position = puzzleGame.board();
+  const last = puzzleGame.history({ verbose: true }).slice(-1)[0];
+  const hints = puzzleSelected
+    ? puzzleGame.moves({ square: puzzleSelected, verbose: true })
+    : [];
+  boardEl.innerHTML = "";
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const br = flipped ? 7 - r : r;
+      const bc = flipped ? 7 - c : c;
+      const sq = sqName(r, c);
+      const piece = position[br][bc];
+      const div = document.createElement("div");
+      div.className = "sq " + ((br + bc) % 2 === 0 ? "light" : "dark");
+      div.dataset.square = sq;
+      if (piece) {
+        const span = document.createElement("span");
+        span.className = "piece " + piece.color;
+        span.textContent = GLYPH[piece.color][piece.type];
+        div.appendChild(span);
+      }
+      if (sq === puzzleSelected) div.classList.add("selected");
+      if (last && (sq === last.from || sq === last.to)) div.classList.add("lastmove");
+      const hint = hints.find((m) => m.to === sq);
+      if (hint) {
+        div.classList.add("hint");
+        // NOTE: classList.add("") throws, so never pass an empty token.
+        if (hint.captured) div.classList.add("capture");
+      }
+      div.addEventListener("click", onPuzzleSquareClick);
+      boardEl.appendChild(div);
+    }
+  }
+  renderPuzzleStatus();
+  renderPuzzleMoves();
+}
+
+function shakeBoard() {
+  boardEl.classList.remove("shake");
+  void boardEl.offsetWidth; // restart the animation
+  boardEl.classList.add("shake");
+  setTimeout(() => boardEl.classList.remove("shake"), 400);
+}
+
+function puzzleAttemptMove(from, to, legalMove) {
+  const expected = puzzle.solutionUci[puzzlePly];
+  if (!expected) return;
+  const exp = puzzleUciParts(expected);
+  const isPromo = !!legalMove.promotion;
+  const promo = isPromo ? (exp.promo || "q") : undefined;
+  const correct = from === exp.from && to === exp.to &&
+    (exp.promo ? (isPromo && promo === exp.promo) : !isPromo);
+  if (!correct) {
+    puzzleAttempts++;
+    puzzleSelected = null;
+    renderPuzzle();
+    setPuzzleStatus("Not quite — try again.");
+    shakeBoard();
+    return;
+  }
+  puzzleGame.move({ from, to, promotion: promo });
+  puzzlePly++;
+  puzzleSelected = null;
+  renderPuzzle();
+  if (puzzlePly >= puzzle.solutionUci.length) { markPuzzleSolved(); return; }
+  puzzleBusy = true;
+  setPuzzleStatus("Correct! Opponent replies…");
+  puzzleReplyTimer = setTimeout(puzzlePlayReply, 600);
+}
+
+function puzzlePlayReply() {
+  puzzleReplyTimer = null;
+  if (!puzzleMode) { puzzleBusy = false; return; }
+  const u = puzzle.solutionUci[puzzlePly];
+  if (!u) { puzzleBusy = false; return; }
+  const p = puzzleUciParts(u);
+  puzzleGame.move({ from: p.from, to: p.to, promotion: p.promo || undefined });
+  puzzlePly++;
+  puzzleBusy = false;
+  renderPuzzle();
+}
+
+function markPuzzleSolved() {
+  puzzleSolved = true;
+  const tries = puzzleAttempts + 1;
+  const store = loadPuzzleStore();
+  store[puzzle.number] = { solved: true, tries };
+  savePuzzleStore(store);
+  puzzleSolvedEl.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "solved-title";
+  title.textContent = "✓ Solved in " + tries + (tries === 1 ? " try!" : " tries!");
+  puzzleSolvedEl.appendChild(title);
+  const sol = document.createElement("div");
+  sol.className = "sol-lines";
+  sol.textContent = pairPuzzleSan(puzzle.solutionSan).join("   ");
+  puzzleSolvedEl.appendChild(sol);
+  const link = puzzleEntry.answer_permalink || puzzleEntry.permalink;
+  if (link) {
+    const a = document.createElement("a");
+    a.href = link;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = puzzleEntry.answer_permalink
+      ? "See the answer on Instagram ↗"
+      : "See the puzzle on Instagram ↗";
+    puzzleSolvedEl.appendChild(a);
+  }
+  puzzleSolvedEl.classList.remove("hidden");
+  setPuzzleStatus("Solved! 🎉 Checkmate.");
+  renderPuzzleArchive();
+}
+
+function onPuzzleSquareClick(e) {
+  if (puzzleSolved || puzzleBusy) return;
+  const sq = e.currentTarget.dataset.square;
+  if (puzzleSelected) {
+    const moves = puzzleGame.moves({ square: puzzleSelected, verbose: true });
+    const mv = moves.find((m) => m.to === sq);
+    if (mv) { puzzleAttemptMove(puzzleSelected, sq, mv); return; }
+  }
+  // Clicked own piece -> select (or reselect); otherwise -> deselect.
+  const piece = puzzleGame.get(sq);
+  puzzleSelected = piece && piece.color === puzzleGame.turn() ? sq : null;
+  renderPuzzle();
+}
+
+function puzzleHint() {
+  if (!puzzleMode || puzzleSolved || puzzleBusy || !puzzle) return;
+  const u = puzzle.solutionUci[puzzlePly];
+  if (!u) return;
+  const p = puzzleUciParts(u);
+  const sqEl = boardEl.querySelector('[data-square="' + p.from + '"]');
+  if (sqEl) {
+    sqEl.classList.add("hint-square");
+    if (puzzleHintTimer) clearTimeout(puzzleHintTimer);
+    puzzleHintTimer = setTimeout(() => sqEl.classList.remove("hint-square"), 2500);
+  }
+  const piece = puzzleGame.get(p.from);
+  const names = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
+  setPuzzleStatus("Hint: the next move starts with the " +
+    (piece ? names[piece.type] : "piece") + " on " + p.from + ".");
+}
+
+function renderPuzzleArchive() {
+  const store = loadPuzzleStore();
+  const items = puzzleQueue
+    .filter((e) => e.status === "posted" || e.status === "answered")
+    .sort((a, b) => b.number - a.number);
+  puzzleArchiveEl.innerHTML = "";
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.textContent = "No puzzles posted yet.";
+    puzzleArchiveEl.appendChild(li);
+    return;
+  }
+  items.forEach((e) => {
+    const li = document.createElement("li");
+    const mateN = e.theme.replace("mateIn", "");
+    const st = store[e.number];
+    li.textContent = "#" + String(e.number).padStart(3, "0") + " · mate in " + mateN +
+      " · " + e.rating +
+      (st && st.solved ? "  ✓ solved in " + st.tries + (st.tries === 1 ? " try" : " tries") : "");
+    if (puzzleEntry && e.number === puzzleEntry.number) li.classList.add("current");
+    li.addEventListener("click", () => loadPuzzle(e));
+    puzzleArchiveEl.appendChild(li);
+  });
+}
+
+function loadPuzzle(entry) {
+  const row = puzzlePool[entry.puzzle_id];
+  if (!row) {
+    puzzleMetaEl.textContent = "";
+    showPuzzleError("Puzzle " + entry.puzzle_id + " is not in the puzzle pool.");
+    return;
+  }
+  puzzleEntry = entry;
+  const mateN = entry.theme.replace("mateIn", "");
+  puzzle = {
+    number: entry.number, theme: entry.theme, rating: entry.rating,
+    // CSV stores the side as "white"/"black"; normalize to "w"/"b" so the
+    // comparisons below (and chess.js turn values) all agree.
+    side: (row.side || "").toLowerCase().startsWith("w") ? "w" : "b",
+    fen: row.fen,
+    solutionUci: row.uci.split(/\s+/).filter(Boolean),
+    solutionSan: row.san,
+  };
+  puzzleGame = new Chess(puzzle.fen);
+  puzzlePly = 0;
+  puzzleAttempts = 0;
+  puzzleSolved = false;
+  puzzleBusy = false;
+  puzzleSelected = null;
+  if (puzzleReplyTimer) { clearTimeout(puzzleReplyTimer); puzzleReplyTimer = null; }
+  flipped = puzzle.side === "b"; // side to move at the bottom
+  puzzleSolvedEl.classList.add("hidden");
+  puzzleSolvedEl.innerHTML = "";
+  puzzleErrorEl.classList.add("hidden");
+  puzzleMetaEl.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "puzzle-title";
+  title.textContent = "Puzzle #" + String(entry.number).padStart(3, "0") +
+    " · " + (puzzle.side === "w" ? "White" : "Black") + " to move · Mate in " + mateN;
+  puzzleMetaEl.appendChild(title);
+  const stars = document.createElement("div");
+  stars.className = "dim";
+  stars.textContent = "Difficulty " + puzzleStars(puzzle.rating) + "   (Lichess " + puzzle.rating + ")";
+  puzzleMetaEl.appendChild(stars);
+  if (entry.permalink) {
+    const a = document.createElement("a");
+    a.href = entry.permalink;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "View on Instagram ↗";
+    puzzleMetaEl.appendChild(a);
+  }
+  renderPuzzle();
+  renderPuzzleArchive();
+}
+
+function showPuzzleError(msg) {
+  puzzleErrorEl.textContent = msg;
+  puzzleErrorEl.classList.remove("hidden");
+}
+
+async function loadPuzzleData() {
+  if (puzzleLoading) return;
+  puzzleLoading = true;
+  puzzleMetaEl.textContent = "Loading puzzles…";
+  puzzleErrorEl.classList.add("hidden");
+  puzzleRetryBtn.classList.add("hidden");
+  try {
+    const [qRes, cRes] = await Promise.all([
+      fetch(PUZZLE_QUEUE_URL, { cache: "no-cache" }),
+      fetch(PUZZLE_CSV_URL, { cache: "no-cache" }),
+    ]);
+    if (!qRes.ok) throw new Error("queue.json: HTTP " + qRes.status);
+    if (!cRes.ok) throw new Error("puzzles.csv: HTTP " + cRes.status);
+    puzzleQueue = await qRes.json();
+    const rows = parsePuzzleCsv(await cRes.text());
+    const header = rows[0].map((h) => h.trim());
+    puzzlePool = {};
+    rows.slice(1).forEach((r) => {
+      const obj = {};
+      header.forEach((h, i) => { obj[h] = (r[i] || "").trim(); });
+      if (obj.id) puzzlePool[obj.id] = obj;
+    });
+    puzzleLoaded = true;
+    const entry = selectCurrentPuzzle();
+    if (!entry) throw new Error("The puzzle queue is empty.");
+    loadPuzzle(entry);
+  } catch (err) {
+    puzzleMetaEl.textContent = "";
+    showPuzzleError("Could not load puzzles: " + err.message + " Check your connection and try again.");
+    puzzleRetryBtn.classList.remove("hidden");
+  } finally {
+    puzzleLoading = false;
+  }
+}
+
+async function enterPuzzleMode() {
+  if (puzzleMode) return;
+  puzzleMode = true;
+  tabPlayBtn.classList.remove("active");
+  tabPuzzlesBtn.classList.add("active");
+  document.body.classList.add("puzzle-mode");
+  document.querySelector("h1 small").textContent = "weekly puzzles";
+  puzzlePanel.classList.remove("hidden");
+  // Puzzles are local-only: leave any online room first (leaveRoom renders
+  // the game board, so await it before building the puzzle board).
+  if (mode === "online") await leaveRoom();
+  puzzleSavedFlipped = flipped;
+  if (puzzleLoaded) {
+    flipped = puzzle ? puzzle.side === "b" : false;
+    renderPuzzle();
+    renderPuzzleArchive();
+  } else {
+    await loadPuzzleData();
+  }
+}
+
+function enterPlayMode() {
+  if (!puzzleMode) return;
+  puzzleMode = false;
+  if (puzzleReplyTimer) { clearTimeout(puzzleReplyTimer); puzzleReplyTimer = null; puzzleBusy = false; }
+  if (puzzleHintTimer) { clearTimeout(puzzleHintTimer); puzzleHintTimer = null; }
+  tabPlayBtn.classList.add("active");
+  tabPuzzlesBtn.classList.remove("active");
+  document.body.classList.remove("puzzle-mode");
+  document.querySelector("h1 small").textContent = "two-player game";
+  puzzlePanel.classList.add("hidden");
+  flipped = puzzleSavedFlipped;
+  render();
+}
+
+tabPlayBtn.addEventListener("click", enterPlayMode);
+tabPuzzlesBtn.addEventListener("click", enterPuzzleMode);
+document.getElementById("puzzleHint").addEventListener("click", puzzleHint);
+document.getElementById("puzzleReset").addEventListener("click", () => { if (puzzleEntry) loadPuzzle(puzzleEntry); });
+document.getElementById("puzzleFlip").addEventListener("click", () => { flipped = !flipped; renderPuzzle(); });
+puzzleRetryBtn.addEventListener("click", loadPuzzleData);
+
+// Deep link: opening the page with #puzzles jumps straight to Puzzles mode.
+if (window.location.hash === "#puzzles") enterPuzzleMode();
 </script>
 </body>
 </html>
