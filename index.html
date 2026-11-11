@@ -86,6 +86,42 @@
   #moves li:last-child { color: #d9eec3; }
   .hidden { display: none !important; }
   .row { display: flex; gap: 8px; }
+  /* ---- mode tabs + Puzzles mode (additive: the two-player game above is untouched) ---- */
+  #modeTabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  #modeTabs button { background: #262421; color: #bababa; }
+  #modeTabs button.active { background: #629924; color: #fff; }
+  /* in Puzzles mode, hide the two-player-only controls (clocks, online, etc.) */
+  body.puzzle-mode .player-bar, body.puzzle-mode #boardHelp, body.puzzle-mode #sessionBadge,
+  body.puzzle-mode #copyPgn, body.puzzle-mode #downloadPgn, body.puzzle-mode #exportStatus,
+  body.puzzle-mode #captured,
+  body.puzzle-mode #onlineBox, body.puzzle-mode #timeControl,
+  body.puzzle-mode #newGame, body.puzzle-mode #flipBoard { display: none !important; }
+  #puzzlePanel { display: flex; flex-direction: column; gap: 12px; }
+  .puzzle-meta { color: #fff; font-size: 15px; line-height: 1.6; }
+  .puzzle-meta a { color: #7cb342; }
+  #puzzleError { background: #4a2323; color: #ffb4b4; border-radius: 6px;
+                 padding: 12px; font-size: 14px; line-height: 1.5; }
+  .solved { background: #262421; border: 2px solid #F0B93C; border-radius: 6px;
+            padding: 12px; color: #fff; font-size: 14px; line-height: 1.6; }
+  .solved-title { color: #F0B93C; font-weight: bold; margin-bottom: 6px; }
+  .sol-lines { font-family: ui-monospace, "SF Mono", Menlo, monospace;
+               font-size: 13px; margin-bottom: 8px; }
+  .solved a { color: #7cb342; }
+  .puzzle-archive-title { color: #fff; font-size: 14px; font-weight: bold;
+                          margin-bottom: 6px; }
+  .archive { list-style: none; margin: 0; padding: 0; background: #262421;
+             border-radius: 6px; max-height: 220px; overflow-y: auto; font-size: 14px; }
+  .archive li { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid #33302a; }
+  .archive li:last-child { border-bottom: none; }
+  .archive li:hover { background: #2e2b26; }
+  .archive li.current { border-left: 3px solid #F0B93C; padding-left: 9px; }
+  .sq.hint-square { outline: 3px solid #F0B93C; outline-offset: -3px; }
+  #board.shake { animation: board-shake 0.3s; }
+  @keyframes board-shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
   .row button, .row select, .row input { flex: 1; min-width: 0; }
   select, input { background: #171f1a; color: #edf0eb; border: 1px solid #48554a;
     border-radius: 7px; padding: 10px; font: 13px system-ui; min-height: 42px; }
@@ -116,42 +152,6 @@
   @media (prefers-reduced-motion: no-preference) {
     .clock, button.secondary { transition: background-color .15s; }
   }
-  /* ---- mode tabs + Puzzles mode (additive: the two-player game above is untouched) ---- */
-  #modeTabs { display: flex; gap: 8px; margin-bottom: 16px; }
-  #modeTabs button { background: #262421; color: #bababa; }
-  #modeTabs button.active { background: #629924; color: #fff; }
-  /* in Puzzles mode, hide the two-player-only controls (clocks, online, etc.) */
-  body.puzzle-mode #clockB, body.puzzle-mode #clockW, body.puzzle-mode #captured,
-  body.puzzle-mode #onlineBox, body.puzzle-mode #timeControl,
-  body.puzzle-mode #newGame, body.puzzle-mode #flipBoard { display: none !important; }
-  #puzzlePanel { display: flex; flex-direction: column; gap: 12px; }
-  .puzzle-meta { color: #fff; font-size: 15px; line-height: 1.6; }
-  .puzzle-meta a { color: #7cb342; }
-  #puzzleError { background: #4a2323; color: #ffb4b4; border-radius: 6px;
-                 padding: 12px; font-size: 14px; line-height: 1.5; }
-  .solved { background: #262421; border: 2px solid #F0B93C; border-radius: 6px;
-            padding: 12px; color: #fff; font-size: 14px; line-height: 1.6; }
-  .solved-title { color: #F0B93C; font-weight: bold; margin-bottom: 6px; }
-  .sol-lines { font-family: ui-monospace, "SF Mono", Menlo, monospace;
-               font-size: 13px; margin-bottom: 8px; }
-  .solved a { color: #7cb342; }
-  .puzzle-archive-title { color: #fff; font-size: 14px; font-weight: bold;
-                          margin-bottom: 6px; }
-  .archive { list-style: none; margin: 0; padding: 0; background: #262421;
-             border-radius: 6px; max-height: 220px; overflow-y: auto; font-size: 14px; }
-  .archive li { padding: 9px 12px; cursor: pointer; border-bottom: 1px solid #33302a; }
-  .archive li:last-child { border-bottom: none; }
-  .archive li:hover { background: #2e2b26; }
-  .archive li.current { border-left: 3px solid #F0B93C; padding-left: 9px; }
-  .sq.hint-square { outline: 3px solid #F0B93C; outline-offset: -3px; }
-  #board.shake { animation: board-shake 0.3s; }
-  @keyframes board-shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-6px); }
-    75% { transform: translateX(6px); }
-  }
-  body.puzzle-mode .player-bar, body.puzzle-mode #boardHelp,
-  body.puzzle-mode #gameSettings, body.puzzle-mode #exportControls { display: none !important; }
 </style>
 </head>
 <body>
@@ -163,7 +163,6 @@
   <button id="tabPlay" class="active" type="button">♞&#xFE0E; Play</button>
   <button id="tabPuzzles" type="button">🧩 Puzzles</button>
 </div>
-
 <main id="app">
   <section id="playArea" aria-label="Play chess">
     <div class="player-bar" id="playerB">
@@ -178,6 +177,23 @@
     <p id="boardHelp">Tap two squares or drag a piece to move. Arrow keys explore the board; Enter selects.</p>
   </section>
   <aside id="side" aria-label="Game controls and moves">
+    <div id="puzzlePanel" class="panel hidden">
+      <div id="puzzleMeta" class="puzzle-meta">Loading…</div>
+      <div id="puzzleError" class="hidden"></div>
+      <div class="row">
+        <button id="puzzleHint" type="button">Hint</button>
+        <button id="puzzleReset" type="button">Reset</button>
+        <button id="puzzleFlip" type="button">Flip</button>
+      </div>
+      <button id="puzzleRetry" class="hidden" type="button">Try again</button>
+      <div id="puzzleSolved" class="solved hidden"></div>
+      <div>
+        <div class="puzzle-archive-title">Archive</div>
+        <ul id="puzzleArchive" class="archive"></ul>
+      </div>
+      <p class="dim">No account. No data leaves your device — your attempts and
+      solved puzzles are stored only in this browser.</p>
+    </div>
     <section class="panel" aria-label="Game status">
       <h2 class="panel-title">On the board</h2>
       <div id="status" role="status" aria-live="polite">White to move</div>
@@ -186,15 +202,13 @@
     <section class="panel" aria-label="Move list and export">
       <h2 class="panel-title">Moves</h2>
       <ol id="moves" aria-label="Move history" tabindex="0"></ol>
-      <div id="exportControls">
       <div class="row">
         <button class="secondary" id="copyPgn" disabled>Copy PGN</button>
         <button class="secondary" id="downloadPgn" disabled>Download PGN</button>
       </div>
       <p id="exportStatus" role="status" aria-live="polite"></p>
-      </div>
     </section>
-    <section class="panel" id="gameSettings" aria-label="Game settings">
+    <section class="panel" aria-label="Game settings">
       <h2 class="panel-title">Game settings</h2>
       <div class="row">
         <select id="timeControl" aria-label="Time control" title="Time control for a new game">
@@ -218,23 +232,6 @@
       <div id="onlineStatus" class="dim" role="status" aria-live="polite">Enter the same room code on two devices.</div>
       <button id="leaveBtn" class="secondary hidden">Leave room</button>
     </section>
-    <div id="puzzlePanel" class="hidden">
-      <div id="puzzleMeta" class="puzzle-meta">Loading…</div>
-      <div id="puzzleError" class="hidden"></div>
-      <div class="row">
-        <button id="puzzleHint" type="button">Hint</button>
-        <button id="puzzleReset" type="button">Reset</button>
-        <button id="puzzleFlip" type="button">Flip</button>
-      </div>
-      <button id="puzzleRetry" class="hidden" type="button">Try again</button>
-      <div id="puzzleSolved" class="solved hidden"></div>
-      <div>
-        <div class="puzzle-archive-title">Archive</div>
-        <ul id="puzzleArchive" class="archive"></ul>
-      </div>
-      <p class="dim">No account. No data leaves your device — your attempts and
-      solved puzzles are stored only in this browser.</p>
-    </div>
   </aside>
 </main>
 
@@ -767,7 +764,7 @@ function renderPlayers() {
 
 // One tab stop for the board. Arrow keys follow the displayed orientation.
 boardEl.addEventListener("keydown", (event) => {
-  if (document.body.classList.contains("puzzle-mode")) return;
+  if (puzzleMode) return;
   const square = event.target.closest(".sq");
   if (!square) return;
   const index = [...boardEl.children].indexOf(square);
@@ -789,6 +786,7 @@ boardEl.addEventListener("keydown", (event) => {
   }
 });
 boardEl.addEventListener("focusin", (event) => {
+  if (puzzleMode) return;
   const square = event.target.closest(".sq");
   if (!square) return;
   for (const other of boardEl.children) other.tabIndex = other === square ? 0 : -1;
@@ -800,13 +798,13 @@ let drag = null;
 let dragGhost = null;
 let suppressPointerClick = false;
 boardEl.addEventListener("click", (event) => {
-  if (document.body.classList.contains("puzzle-mode")) return;
+  if (puzzleMode) return;
   if (suppressPointerClick && event.detail !== 0) { suppressPointerClick = false; return; }
   const square = event.target.closest(".sq");
   if (square) selectSquare(square.dataset.square);
 });
 boardEl.addEventListener("pointerdown", (event) => {
-  if (document.body.classList.contains("puzzle-mode")) return;
+  if (puzzleMode) return;
   suppressPointerClick = false;
   if (event.button !== 0 || event.isPrimary === false || gameOver || pendingPromo) return;
   if (mode === "online" && (roomStatus !== "playing" || game.turn() !== myColor)) return;
@@ -1419,7 +1417,6 @@ async function enterPuzzleMode() {
   tabPuzzlesBtn.classList.add("active");
   document.body.classList.add("puzzle-mode");
   document.querySelector("h1 small").textContent = "weekly puzzles";
-  document.getElementById("sessionBadge").textContent = "Puzzles";
   puzzlePanel.classList.remove("hidden");
   // Puzzles are local-only: leave any online room first (leaveRoom renders
   // the game board, so await it before building the puzzle board).

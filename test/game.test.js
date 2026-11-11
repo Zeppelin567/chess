@@ -19,6 +19,12 @@ function app(t) {
   window.setInterval = (callback) => { tick = callback; };
   window.eval(source + `\nwindow.testing = {
     game, doMove, render, renderCaptured, pgnText, enterPuzzleMode, enterPlayMode,
+    preparePuzzle: () => {
+      puzzleLoaded = true;
+      puzzleQueue = [{ number: 1, puzzle_id: "fixture", theme: "mateIn1", rating: 800, status: "posted" }];
+      puzzlePool = { fixture: { side: "white", fen: "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1", uci: "f7g7", san: "Qg7#" } };
+      loadPuzzle(puzzleQueue[0]);
+    },
     state: () => ({ clocks: { ...clockMs }, gameOver, pendingPromo }),
   };`);
   const clickSquare = (sq) => window.document.querySelector(`[data-square="${sq}"]`).click();
@@ -190,6 +196,25 @@ test('clipboard failure provides a download fallback instead of reporting succes
   assert.match(a.document.querySelector('#exportStatus').textContent, /Download PGN/);
 });
 
+ test('puzzle clicks stay separate from local play and switching back restores the game', (t) => {
+  const a = app(t);
+  a.doMove('e2', 'e4', 'q');
+  const localFen = a.game.fen();
+  a.preparePuzzle();
+  a.document.querySelector('#tabPuzzles').click();
+  a.clickSquare('f7');
+  a.clickSquare('g7');
+  assert.match(a.document.querySelector('#status').textContent, /Solved/);
+  assert.equal(a.game.fen(), localFen);
+  assert.equal(a.document.querySelectorAll('#board .sq').length, 64);
+  a.document.querySelector('#tabPlay').click();
+  assert.equal(a.game.fen(), localFen);
+  assert.equal(a.document.querySelectorAll('#board .sq').length, 64);
+  a.clickSquare('e7');
+  a.clickSquare('e5');
+  assert.deepEqual(a.game.history(), ['e4', 'e5']);
+});
+
 async function openPuzzle(a) {
   a.window.fetch = async (url) => ({
     ok: true,
@@ -206,7 +231,6 @@ test('puzzle clicks solve the puzzle without reaching the local game handlers', 
   a.clickSquare('g7');
   assert.match(a.document.querySelector('#status').textContent, /Solved/);
   assert.deepEqual(a.game.history(), []);
-  assert.equal(a.document.querySelector('#sessionBadge').textContent, 'Puzzles');
   a.enterPlayMode();
   assert.equal(a.document.querySelectorAll('#board button').length, 64);
   a.clickSquare('e2');
